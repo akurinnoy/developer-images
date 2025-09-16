@@ -82,11 +82,14 @@ jobs:
           # Capture the digest for the PR comment
           IMAGE_DIGEST=$(docker manifest inspect ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}} | grep -E '"digest":\s*"sha256:' | head -1 | sed 's/.*"sha256:\([^"]*\)".*/sha256:\1/')
           echo "IMAGE_DIGEST=$IMAGE_DIGEST" >> $GITHUB_ENV
-      - name: 'Remove previous PR comments'
+      - name: 'Update or Create PR Comment'
         uses: actions/github-script@v7
         with:
           script: |
             const { repo: { owner, repo } } = context;
+            
+            // Prepare the comment body
+            const commentBody = `Pull Request base image published ✨\n\nBase Image: [${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}}](https://${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image?tab=tags&tag=ubi10-pr-${{github.event.number}})\n\nImage Digest: \`${{env.IMAGE_DIGEST}}\`\n\nFull Image Reference: \`${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image@${{env.IMAGE_DIGEST}}\``;
             
             // Get all comments on the PR
             const comments = await github.rest.issues.listComments({
@@ -95,29 +98,28 @@ jobs:
               issue_number: ${{github.event.number}}
             });
             
-            // Find comments from this workflow (contains our unique text)
-            const botComments = comments.data.filter(comment => 
+            // Find existing comment from this workflow (contains our unique text)
+            const existingComment = comments.data.find(comment => 
               comment.user.type === 'Bot' && 
               comment.body.includes('Pull Request base image published ✨')
             );
             
-            // Delete existing bot comments
-            for (const comment of botComments) {
-              await github.rest.issues.deleteComment({
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: comment.id
+                comment_id: existingComment.id,
+                body: commentBody
               });
-              console.log(`Deleted comment ${comment.id}`);
+              console.log(`Updated existing comment ${existingComment.id}`);
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: ${{github.event.number}},
+                body: commentBody
+              });
+              console.log('Created new PR comment');
             }
-      - name: 'Comment PR'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { repo: { owner, repo } } = context;
-            await github.rest.issues.createComment({
-               issue_number: ${{github.event.number}},
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               body: `Pull Request base image published ✨\n\nBase Image: [${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}}](https://${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image?tab=tags&tag=ubi10-pr-${{github.event.number}})\n\nImage Digest: \`${{env.IMAGE_DIGEST}}\`\n\nFull Image Reference: \`${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image@${{env.IMAGE_DIGEST}}\``
-             })
