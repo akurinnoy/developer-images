@@ -33,20 +33,20 @@ ENV HOME=/home/tooling
 # Java
 RUN curl -fsSL "https://get.sdkman.io/?rcupdate=false" | bash \
     && bash -c ". /home/tooling/.sdkman/bin/sdkman-init.sh \
-             && sed -i "s/sdkman_auto_answer=false/sdkman_auto_answer=true/g" /home/tooling/.sdkman/etc/config \
-	     && sed -i "s/sdkman_auto_env=false/sdkman_auto_env=true/g" /home/tooling/.sdkman/etc/config \
-             && sdk install java 8.0.432-tem \
-             && sdk install java 11.0.25-tem \
-             && sdk install java 17.0.13-tem \
-             && sdk install java 21.0.5-tem \
-             && sdk install java 23.1.5.r21-mandrel \
-             && sdk default java 17.0.13-tem \
-             && sdk install gradle \
-             && sdk install maven \
-             && sdk install jbang \
-             && sdk flush archives \
-             && sdk flush temp" \
-         && chgrp -R 0 /home/tooling && chmod -R g=u /home/tooling
+    && sed -i "s/sdkman_auto_answer=false/sdkman_auto_answer=true/g" /home/tooling/.sdkman/etc/config \
+    && sed -i "s/sdkman_auto_env=false/sdkman_auto_env=true/g" /home/tooling/.sdkman/etc/config \
+    && sdk install java 8.0.432-tem \
+    && sdk install java 11.0.25-tem \
+    && sdk install java 17.0.13-tem \
+    && sdk install java 21.0.5-tem \
+    && sdk install java 23.1.5.r21-mandrel \
+    && sdk default java 17.0.13-tem \
+    && sdk install gradle \
+    && sdk install maven \
+    && sdk install jbang \
+    && sdk flush archives \
+    && sdk flush temp" \
+    && chgrp -R 0 /home/tooling && chmod -R g=u /home/tooling
 
 # sdk home java <version>
 ENV JAVA_HOME_8=/home/tooling/.sdkman/candidates/java/8.0.432-tem
@@ -60,9 +60,9 @@ ENV SDKMAN_CANDIDATES_API="https://api.sdkman.io/2"
 ENV SDKMAN_CANDIDATES_DIR="/home/tooling/.sdkman/candidates"
 ENV SDKMAN_DIR="/home/tooling/.sdkman"
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        export SDKMAN_PLATFORM="linuxarm64"; \
+    export SDKMAN_PLATFORM="linuxarm64"; \
     else \
-        export SDKMAN_PLATFORM="linuxx64"; \
+    export SDKMAN_PLATFORM="linuxx64"; \
     fi
 ENV SDKMAN_PLATFORM=${SDKMAN_PLATFORM}
 ENV SDKMAN_VERSION="5.18.2"
@@ -133,7 +133,8 @@ ENV GOBIN="/home/tooling/go/bin/"
 ENV PATH="$GOBIN:$PATH"
 
 # Python
-RUN dnf -y install python3.11 python3.11-devel python3.11-setuptools python3.11-pip nss_wrapper
+# Ensure python3.11-venv is installed for creating virtual environments
+RUN dnf -y install python3.11 python3.11-devel python3.11-setuptools python3.11-pip python3.11-venv nss_wrapper
 
 RUN cd /usr/bin \
     && if [ ! -L python ]; then ln -s python3.11 python; fi \
@@ -143,14 +144,28 @@ RUN cd /usr/bin \
 
 RUN pip install pylint yq
 
+# Install ra-aid in a dedicated virtual environment (as USER 0)
+ENV RA_AID_VENV_PATH=/opt/venv/ra-aid
+RUN python3.11 -m venv ${RA_AID_VENV_PATH} && \
+    echo "Installing ra-aid into ${RA_AID_VENV_PATH}..." && \
+    ${RA_AID_VENV_PATH}/bin/pip install --no-cache-dir ra-aid && \
+    # Optional: Verify installation by trying to get help output
+    ${RA_AID_VENV_PATH}/bin/ra-aid --version && \
+    echo "ra-aid installation complete."
+
+# Add ra-aid's virtual environment to the PATH
+# This ENV PATH will be inherited by subsequent USER instructions and the final container environment.
+ENV PATH="${RA_AID_VENV_PATH}/bin:${PATH}"
+
+
 # PHP
 ENV PHP_VERSION=8.2
 RUN dnf -y module enable php:$PHP_VERSION && \
     dnf install -y --setopt=tsflags=nodocs php php-mysqlnd php-pgsql php-bcmath \
-                php-gd php-intl php-json php-ldap php-mbstring php-pdo \
-                php-pear php-zlib php-mysqli php-curl php-xml php-devel\
-                php-process php-soap php-opcache php-fpm ca-certificates \
-                php-gmp php-pecl-xdebug php-pecl-zip mod_ssl hostname && \
+    php-gd php-intl php-json php-ldap php-mbstring php-pdo \
+    php-pear php-zlib php-mysqli php-curl php-xml php-devel\
+    php-process php-soap php-opcache php-fpm ca-certificates \
+    php-gmp php-pecl-xdebug php-pecl-zip mod_ssl hostname && \
     wget https://getcomposer.org/installer -O /tmp/composer-installer.php && \
     php /tmp/composer-installer.php --filename=composer --install-dir=/usr/local/bin
 
@@ -200,9 +215,9 @@ RUN mkdir -p /home/tooling/.m2 && \
 # oc client
 ENV OC_VERSION=4.15
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        curl -L https://mirror.openshift.com/pub/openshift-v4/arm64/clients/ocp/stable-${OC_VERSION}/openshift-client-linux.tar.gz; \
+    curl -L https://mirror.openshift.com/pub/openshift-v4/arm64/clients/ocp/stable-${OC_VERSION}/openshift-client-linux.tar.gz; \
     else \
-        curl -L https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-${OC_VERSION}/openshift-client-linux.tar.gz; \
+    curl -L https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-${OC_VERSION}/openshift-client-linux.tar.gz; \
     fi | tar -C /usr/local/bin -xz --no-same-owner && \
     chmod +x /usr/local/bin/oc
 
@@ -210,7 +225,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 ENV TKN_VERSION=1.14.0
 RUN curl -L https://mirror.openshift.com/pub/openshift-v4/clients/pipelines/${TKN_VERSION}/tkn-linux-${TARGETARCH}.tar.gz | tar -C /usr/local/bin -xz --no-same-owner \
     && chmod +x /usr/local/bin/tkn /usr/local/bin/opc /usr/local/bin/tkn-pac
- 
+
 RUN echo 'alias docker=podman' >> ${PROFILE_EXT}
 
 # Configure container engine
@@ -422,7 +437,7 @@ RUN dnf -y install bash-completion \
 
 RUN <<EOF
 oc completion bash > /usr/share/bash-completion/completions/oc
-tkn completion bash > /usr/share/bash-completion/completions/tkn 
+tkn completion bash > /usr/share/bash-completion/completions/tkn
 kubectl completion bash > /usr/share/bash-completion/completions/kubectl
 cat ${NVM_DIR}/bash_completion > /usr/share/bash-completion/completions/nvm
 EOF

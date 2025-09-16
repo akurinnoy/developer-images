@@ -1,0 +1,123 @@
+#
+# Copyright (c) 2021-2025 Red Hat, Inc.
+# This program and the accompanying materials are made
+# available under the terms of the Eclipse Public License 2.0
+# which is available at https://www.eclipse.org/legal/epl-2.0/
+#
+# SPDX-License-Identifier: EPL-2.0
+#
+
+name: Pull Request Check UBI 10
+
+# Trigger the workflow on pull request
+on: [pull_request]
+
+env:
+  IMAGE_REGISTRY_PREFIX: quay.io/okurinny
+
+jobs:
+  build-base-image:
+    name: Build ubi10-base image
+    strategy:
+      fail-fast: false
+      matrix:
+        runners: ['ubuntu-22.04', 'ubuntu-22.04-arm']
+    runs-on: ${{matrix.runners}}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set arch environment variable
+        run: |
+          if [[ ${{matrix.runners}} == 'ubuntu-22.04' ]]; then
+            echo arch="amd64" >> $GITHUB_ENV
+          else
+            echo arch="arm64" >> $GITHUB_ENV
+          fi
+      - name: Free runner space
+        run: sudo rm -rf /usr/local/lib/android
+      - name: Cleanup docker images
+        run: docker system prune -af
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+      - name: Build base image
+        run: |
+            cd base/ubi10 && docker buildx build \
+            --platform linux/${{env.arch}} \
+            --progress=plain \
+            --push \
+            -t ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-${{env.arch}}-pr-${{github.event.number}} .
+      - name: Display docker images
+        run: docker images
+
+  publish-base-image:
+    name: Publish base image
+    runs-on: ubuntu-22.04
+    needs: build-base-image
+    steps:
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+      - name: Create and publish manifest
+        run: |
+          docker manifest create ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}} \
+            --amend ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-amd64-pr-${{github.event.number}} \
+            --amend ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-arm64-pr-${{github.event.number}}         
+          
+          docker manifest annotate ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}} \
+            ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-amd64-pr-${{github.event.number}} \
+            --os linux --arch amd64
+          docker manifest annotate ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}} \
+            ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-arm64-pr-${{github.event.number}} \
+            --os linux --arch arm64
+           
+          docker manifest push ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}}
+          
+          # Capture the digest for the PR comment
+          IMAGE_DIGEST=$(docker manifest inspect ${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}} | grep -E '"digest":\s*"sha256:' | head -1 | sed 's/.*"sha256:\([^"]*\)".*/sha256:\1/')
+          echo "IMAGE_DIGEST=$IMAGE_DIGEST" >> $GITHUB_ENV
+      - name: 'Remove previous PR comments'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { repo: { owner, repo } } = context;
+            
+            // Get all comments on the PR
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{github.event.number}}
+            });
+            
+            // Find comments from this workflow (contains our unique text)
+            const botComments = comments.data.filter(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Pull Request base image published ✨')
+            );
+            
+            // Delete existing bot comments
+            for (const comment of botComments) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: comment.id
+              });
+              console.log(`Deleted comment ${comment.id}`);
+            }
+      - name: 'Comment PR'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { repo: { owner, repo } } = context;
+            await github.rest.issues.createComment({
+               issue_number: ${{github.event.number}},
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               body: `Pull Request base image published ✨\n\nBase Image: [${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image:ubi10-pr-${{github.event.number}}](https://${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image?tab=tags&tag=ubi10-pr-${{github.event.number}})\n\nImage Digest: \`${{env.IMAGE_DIGEST}}\`\n\nFull Image Reference: \`${{env.IMAGE_REGISTRY_PREFIX}}/base-developer-image@${{env.IMAGE_DIGEST}}\``
+             })
