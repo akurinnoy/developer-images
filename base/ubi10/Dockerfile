@@ -26,13 +26,13 @@ RUN mkdir -p /home/tooling/
 
 ## add epel 9 repos so that p7zip p7zip-plugins stow can be found
 RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
-    dnf install -y openssh-clients rsync socat sudo time vim wget zip stow && \
+    dnf install -y iproute jq less lsof man nano procps p7zip p7zip-plugins perl-Digest-SHA net-tools openssh-clients rsync socat sudo time vim wget zip stow && \
     dnf update -y && \
     dnf clean all
 
 ## install other packages from epel 10 (testing migration)
 RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
-    dnf install -y diffutils git git-lfs iproute jq less lsof man nano procps p7zip p7zip-plugins perl-Digest-SHA net-tools && \
+    dnf install -y diffutils git git-lfs && \
     dnf clean all
 
 ## podman buildah skopeo
